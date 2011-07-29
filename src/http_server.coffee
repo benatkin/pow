@@ -10,6 +10,7 @@ fs              = require "fs"
 sys             = require "sys"
 connect         = require "connect"
 RackApplication = require "./rack_application"
+NodeApplication = require "./node_application"
 
 {pause} = require "./util"
 {dirname, join, exists} = require "path"
@@ -54,6 +55,7 @@ module.exports = class HttpServer extends connect.HTTPServer
       o @findApplicationRoot
       o @handleStaticRequest
       o @findRackApplication
+      o @findNodeApplication
       o @handleApplicationRequest
       x @handleErrorStartingApplication
       o @handleFaviconRequest
@@ -64,13 +66,13 @@ module.exports = class HttpServer extends connect.HTTPServer
     ]
 
     @staticHandlers = {}
-    @rackApplications = {}
+    @webApplications = {}
     @requestCount = 0
 
     @accessLog = @configuration.getLogger "access"
 
     @on "close", =>
-      for root, application of @rackApplications
+      for root, application of @webApplications
         application.quit()
 
   # Gets an object describing the server's current status that can be
@@ -157,15 +159,24 @@ module.exports = class HttpServer extends connect.HTTPServer
 
     exists join(root, "config.ru"), (rackConfigExists) =>
       if rackConfigExists
-        req.pow.application = @rackApplications[root] ?=
+        req.pow.application = @webApplications[root] ?=
           new RackApplication @configuration, root
 
       # If `config.ru` isn't present but there's an existing
       # `RackApplication` for the root, terminate the application and
       # remove it from the cache.
-      else if application = @rackApplications[root]
-        delete @rackApplications[root]
+      else if application = @webApplications[root]
+        delete @webApplications[root]
         application.quit()
+
+      next()
+
+  findNodeApplication: (req, res, next) =>
+    return next() unless root = req.pow.root
+
+    exists join(root, "package.json"), (nodePackageExists) =>
+      if nodePackageExists
+        new RackApplication @configuration, root
 
       next()
 
